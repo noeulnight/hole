@@ -66,6 +66,7 @@ export class SshService extends SSHServer implements OnModuleDestroy {
     string,
     Set<ServerChannel>
   >();
+  private readonly domain: string;
 
   constructor(
     private readonly sessionService: SessionService,
@@ -85,6 +86,7 @@ export class SshService extends SSHServer implements OnModuleDestroy {
     this.sshPort = this.configService.get<number>('SSH_PORT', 2222);
     this.authMode = this.configService.get<AuthMode>('SSH_AUTH_MODE', 'noauth');
     this.authUsername = this.configService.get<string>('SSH_AUTH_USERNAME');
+    this.domain = this.configService.get<string>('DOMAIN', 'localhost');
 
     if (this.authMode === 'password') {
       this.authPassword =
@@ -328,6 +330,8 @@ export class SshService extends SSHServer implements OnModuleDestroy {
     if (!session) return;
 
     const lines = [
+      `sessionId: ${sessionId}`,
+      `sessionEvents: https://${this.domain}/session/${sessionId}/events (SSE)`,
       `connectedAt: ${session.stats.connectedAt.toISOString()}`,
       '',
       'forwards:',
@@ -337,7 +341,9 @@ export class SshService extends SSHServer implements OnModuleDestroy {
       lines.push('-');
     } else {
       for (const forward of forwards) {
-        lines.push(`- host: ${forward.host}, port: ${forward.port}`);
+        lines.push(
+          `- http: https://${forward.host}.${this.domain}, tcp: ${this.domain}:${forward.port}`,
+        );
       }
     }
 
