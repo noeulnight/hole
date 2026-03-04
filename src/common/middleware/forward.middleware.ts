@@ -61,6 +61,13 @@ function parseForwardHostFromHost(
   return forwardHost;
 }
 
+function formatHostForUrl(host: string): string {
+  if (host.includes(':') && !host.startsWith('[') && !host.endsWith(']')) {
+    return `[${host}]`;
+  }
+  return host;
+}
+
 @Injectable()
 export class ForwardMiddleware implements NestMiddleware<
   ForwardRequest,
@@ -68,6 +75,7 @@ export class ForwardMiddleware implements NestMiddleware<
 > {
   private readonly logger = new Logger(ForwardMiddleware.name);
   private readonly baseDomain: string;
+  private readonly forwardTargetHost: string;
   private readonly proxy = createProxyMiddleware<ForwardRequest, Response>({
     target: 'http://127.0.0.1',
     changeOrigin: false,
@@ -92,6 +100,8 @@ export class ForwardMiddleware implements NestMiddleware<
     private readonly sessionService: SessionService,
   ) {
     this.baseDomain = configService.get<string>('DOMAIN') ?? 'localhost';
+    this.forwardTargetHost =
+      configService.get<string>('FORWARD_TARGET_HOST') ?? '127.0.0.1';
   }
 
   use(req: ForwardRequest, res: Response, next: NextFunction) {
@@ -114,7 +124,7 @@ export class ForwardMiddleware implements NestMiddleware<
     }
 
     req.sessionId = route.session.id;
-    req.tunnelTarget = `http://${this.baseDomain}:${route.forward.port}`;
+    req.tunnelTarget = `http://${formatHostForUrl(this.forwardTargetHost)}:${route.forward.port}`;
     const startedAt = Date.now();
     const requestBytes = parseContentLength(req.headers['content-length']);
     let logged = false;

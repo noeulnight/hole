@@ -10,6 +10,7 @@ const hostOrIpSchema = () =>
 
 export const validationSchema = Joi.object({
   DOMAIN: Joi.string().trim().min(1).default('localhost'),
+  FORWARD_TARGET_HOST: hostOrIpSchema().default('127.0.0.1'),
   HTTP_PORT: Joi.number().port().default(3000),
   SSH_PORT: Joi.number().port().default(2222),
   SSH_HOST: hostOrIpSchema().default('0.0.0.0'),

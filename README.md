@@ -49,12 +49,16 @@ $ pnpm run start:prod
 You can choose SSH authentication mode with env values:
 
 ```bash
+DOMAIN=example.com
+FORWARD_TARGET_HOST=127.0.0.1
 SSH_AUTH_MODE=noauth|password
 SSH_AUTH_USERNAME=optional-username
 SSH_AUTH_PASSWORD=required-when-password-mode
 SSH_HOST_KEY_PATH=./test.key
 ```
 
+- `DOMAIN`: used to match incoming hostnames like `<forwardHost>.<domain>`.
+- `FORWARD_TARGET_HOST`: internal proxy target host for forwarded traffic.
 - `noauth`: accepts any auth attempt.
 - `password`: checks `SSH_AUTH_PASSWORD` (and `SSH_AUTH_USERNAME` if set).
 - If `SSH_HOST_KEY_PATH` does not exist, server generates ED25519 host key automatically.
