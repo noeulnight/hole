@@ -113,6 +113,10 @@ export class SshService extends SSHServer implements OnModuleDestroy {
   private handleClient(client: Connection) {
     const session = this.sessionService.create();
 
+    // Register error handler before authentication/ready to avoid uncaught socket errors.
+    client.on('error', (error) => {
+      this.logger.error(error);
+    });
     client.on('authentication', (ctx) => this.handleAuthentication(ctx));
     client.on('ready', () => this.handleReady(session.id, client));
     client.on('close', () => this.handleClose(session.id));
@@ -228,10 +232,6 @@ export class SshService extends SSHServer implements OnModuleDestroy {
           }
         });
       });
-    });
-
-    client.on('error', (error) => {
-      this.logger.error(error);
     });
   }
 

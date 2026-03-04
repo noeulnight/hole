@@ -13,7 +13,7 @@ export const validationSchema = Joi.object({
   HTTP_PORT: Joi.number().port().default(3000),
   SSH_PORT: Joi.number().port().default(2222),
   SSH_HOST: hostOrIpSchema().default('0.0.0.0'),
-  SSH_HOST_KEY_PATH: Joi.string().trim().min(1).default('./test.key'),
+  SSH_HOST_KEY_PATH: Joi.string().trim().min(1).default('./host.key'),
   SSH_AUTH_MODE: Joi.string().valid('noauth', 'password').default('noauth'),
   SSH_AUTH_USERNAME: Joi.string().trim().min(1),
   SSH_AUTH_PASSWORD: Joi.when('SSH_AUTH_MODE', {
