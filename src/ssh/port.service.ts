@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { parsePortRange } from 'src/common/utils/parse-port';
+import {
+  portAcquireFailCounter,
+  portPoolFreeGauge,
+  portPoolUsedGauge,
+} from 'src/common/metrics';
 
 @Injectable()
 export class PortService {
@@ -18,11 +23,14 @@ export class PortService {
       this.freePorts.push(port);
     }
 
+    this.updatePortPoolMetrics();
     this.logger.log(`Available ports: ${this.freePorts.length}`);
   }
 
   public acquire(): number | undefined {
     if (this.freePorts.length === 0) {
+      portAcquireFailCounter.inc();
+      this.updatePortPoolMetrics();
       return undefined;
     }
 
@@ -33,6 +41,7 @@ export class PortService {
     this.freePorts.pop();
 
     this.usedPorts.add(selectedPort);
+    this.updatePortPoolMetrics();
     this.logger.log(`Acquired port: ${selectedPort}`);
     return selectedPort;
   }
@@ -42,6 +51,12 @@ export class PortService {
       return;
     }
     this.freePorts.push(port);
+    this.updatePortPoolMetrics();
     this.logger.log(`Released port: ${port}`);
+  }
+
+  private updatePortPoolMetrics() {
+    portPoolFreeGauge.set(this.freePorts.length);
+    portPoolUsedGauge.set(this.usedPorts.size);
   }
 }

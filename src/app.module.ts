@@ -27,6 +27,7 @@ export class AppModule implements NestModule {
       .apply(ForwardMiddleware)
       .exclude(
         { path: 'health', method: RequestMethod.ALL },
+        { path: 'metrics', method: RequestMethod.ALL },
         { path: 'session', method: RequestMethod.ALL },
         { path: 'session/*path', method: RequestMethod.ALL },
       )

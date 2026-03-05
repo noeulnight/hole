@@ -14,6 +14,10 @@ import {
 } from 'ssh2';
 import { PortService } from './port.service';
 import { SessionService } from 'src/session/session.service';
+import {
+  forwardRequestsCounter,
+  sshAuthAttemptsCounter,
+} from 'src/common/metrics';
 
 type AuthMode = 'noauth' | 'password';
 
@@ -126,6 +130,7 @@ export class SshService extends SSHServer implements OnModuleDestroy {
 
   private handleAuthentication(context: AuthContext) {
     if (this.authMode === 'noauth') {
+      this.recordAuthAttempt(context.method, 'accepted');
       context.accept();
       return;
     }
@@ -135,27 +140,33 @@ export class SshService extends SSHServer implements OnModuleDestroy {
 
   private handlePasswordAuth(context: AuthContext) {
     if (context.method !== 'password') {
+      this.recordAuthAttempt(context.method, 'rejected');
       context.reject(['password']);
       return;
     }
 
     const passwordContext = context;
     if (!this.isUsernameAllowed(passwordContext.username)) {
+      this.recordAuthAttempt(passwordContext.method, 'rejected');
       passwordContext.reject();
       return;
     }
     if (!this.authPassword) {
+      this.recordAuthAttempt(passwordContext.method, 'rejected');
       passwordContext.reject();
       return;
     }
 
     if (!this.matchSecret(passwordContext.password, this.authPassword)) {
+      this.recordAuthAttempt(passwordContext.method, 'rejected');
       passwordContext.reject();
       return;
     }
 
+    this.recordAuthAttempt(passwordContext.method, 'accepted');
     passwordContext.accept();
   }
+
   private isUsernameAllowed(username: string): boolean {
     if (!this.authUsername) {
       return true;
@@ -185,7 +196,6 @@ export class SshService extends SSHServer implements OnModuleDestroy {
   private handleReady(sessionId: string, client: Connection) {
     client.on('request', (accept, reject, name, info: TcpipBindInfo) => {
       if (name === 'tcpip-forward') {
-        if (info.bindPort !== 0) return reject?.();
         this.handleForwardRequest(sessionId, client, info, accept, reject);
         return;
       }
@@ -246,10 +256,16 @@ export class SshService extends SSHServer implements OnModuleDestroy {
   ) {
     if (!reject || !accept) return;
     const { bindPort: requestedPort, bindAddr: requrestedHost } = info;
-    if (requestedPort !== 0) return reject();
+    if (requestedPort !== 0) {
+      forwardRequestsCounter.inc({ result: 'rejected' });
+      return reject();
+    }
 
     const bindedPort = this.portService.acquire();
-    if (!bindedPort) return reject();
+    if (!bindedPort) {
+      forwardRequestsCounter.inc({ result: 'rejected' });
+      return reject();
+    }
 
     const server = createServer((socket) =>
       this.forwardSocket(client, sessionId, requrestedHost, bindedPort, socket),
@@ -265,7 +281,11 @@ export class SshService extends SSHServer implements OnModuleDestroy {
         bindedPort,
         server,
       );
-      if (!forward) return reject();
+      if (!forward) {
+        forwardRequestsCounter.inc({ result: 'rejected' });
+        return reject();
+      }
+      forwardRequestsCounter.inc({ result: 'accepted' });
       accept(bindedPort);
       this.broadcastSessionInfo(sessionId);
     });
@@ -348,6 +368,14 @@ export class SshService extends SSHServer implements OnModuleDestroy {
     }
 
     stream.write(`${lines.join('\r\n')}\r\n`);
+  }
+
+  private recordAuthAttempt(method: string, result: 'accepted' | 'rejected') {
+    sshAuthAttemptsCounter.inc({
+      mode: this.authMode,
+      method,
+      result,
+    });
   }
 
   private forwardSocket(

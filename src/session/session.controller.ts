@@ -18,6 +18,10 @@ import {
   SessionSnapshotPayload,
 } from './session.events';
 import { SessionService } from './session.service';
+import {
+  sseConnectionsActiveGauge,
+  sseEventsCounter,
+} from 'src/common/metrics';
 
 @Controller('session')
 export class SessionController {
@@ -41,10 +45,12 @@ export class SessionController {
 
     return new Observable<MessageEvent>((subscriber) => {
       let cleaned = false;
+      sseConnectionsActiveGauge.inc();
 
       const cleanup = () => {
         if (cleaned) return;
         cleaned = true;
+        sseConnectionsActiveGauge.dec();
 
         this.eventEmitter.off(SESSION_SNAPSHOT_EVENT, onSnapshot);
         this.eventEmitter.off(SESSION_HTTP_REQUEST_EVENT, onHttpRequest);
@@ -52,28 +58,24 @@ export class SessionController {
         req.off?.('close', onClose);
       };
 
+      const emitEvent = (type: string, data: string | object) => {
+        sseEventsCounter.inc({ type });
+        subscriber.next({ type, data });
+      };
+
       const onSnapshot = (payload: SessionSnapshotPayload) => {
         if (payload.sessionId !== sessionId) return;
-        subscriber.next({
-          type: SESSION_SNAPSHOT_EVENT,
-          data: payload,
-        });
+        emitEvent(SESSION_SNAPSHOT_EVENT, payload);
       };
 
       const onHttpRequest = (payload: SessionHttpRequestPayload) => {
         if (payload.sessionId !== sessionId) return;
-        subscriber.next({
-          type: SESSION_HTTP_REQUEST_EVENT,
-          data: payload,
-        });
+        emitEvent(SESSION_HTTP_REQUEST_EVENT, payload);
       };
 
       const onDeleted = (payload: SessionDeletedPayload) => {
         if (payload.sessionId !== sessionId) return;
-        subscriber.next({
-          type: SESSION_DELETED_EVENT,
-          data: payload,
-        });
+        emitEvent(SESSION_DELETED_EVENT, payload);
         cleanup();
         subscriber.complete();
       };
@@ -88,10 +90,7 @@ export class SessionController {
       this.eventEmitter.on(SESSION_DELETED_EVENT, onDeleted);
       req.on('close', onClose);
 
-      subscriber.next({
-        type: SESSION_SNAPSHOT_EVENT,
-        data: initialSnapshot,
-      });
+      emitEvent(SESSION_SNAPSHOT_EVENT, initialSnapshot);
 
       return cleanup;
     });

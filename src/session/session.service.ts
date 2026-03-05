@@ -11,6 +11,19 @@ import {
   SessionSnapshotPayload,
   SessionSnapshotReason,
 } from './session.events';
+import {
+  booleanLabel,
+  forwardsActiveGauge,
+  httpForwardDurationHistogram,
+  httpForwardRequestsCounter,
+  sessionsActiveGauge,
+  sessionsCreatedCounter,
+  sessionsDeletedCounter,
+  tcpBytesCounter,
+  tcpConnectionsCounter,
+  tcpErrorsCounter,
+  toStatusClass,
+} from 'src/common/metrics';
 
 interface HttpTrafficMetrics {
   method: string;
@@ -69,6 +82,8 @@ export class SessionService {
     };
 
     this.session.set(sessionId, session);
+    sessionsCreatedCounter.inc();
+    sessionsActiveGauge.inc();
     this.logger.log(`Session created: ${sessionId}`);
     this.emitSnapshot(sessionId, 'connected');
     return session;
@@ -86,6 +101,8 @@ export class SessionService {
       .filter((port) => port !== undefined);
 
     this.session.delete(sessionId);
+    sessionsDeletedCounter.inc();
+    sessionsActiveGauge.dec();
     this.logger.log(`Session deleted: ${sessionId}`);
     this.eventEmitter.emit(SESSION_DELETED_EVENT, {
       sessionId,
@@ -124,6 +141,7 @@ export class SessionService {
       `[${sessionId}] Forward added (port: ${port}, host: ${host})`,
     );
     this.hostForwardTarget.set(host, { sessionId, port });
+    forwardsActiveGauge.inc();
     this.scheduleSnapshotEmit(sessionId, 'forward_added');
     return forward;
   }
@@ -142,6 +160,7 @@ export class SessionService {
     forward.server.close();
     session.forwards.delete(port);
     this.hostForwardTarget.delete(forward.host);
+    forwardsActiveGauge.dec();
     this.logger.log(`[${sessionId}] Forward removed: ${port}`);
     if (emitSnapshot) {
       this.scheduleSnapshotEmit(sessionId, 'forward_removed');
@@ -155,6 +174,7 @@ export class SessionService {
       session.stats.tcp.totalConnections += 1;
     });
     if (updated) {
+      tcpConnectionsCounter.inc();
       this.scheduleSnapshotEmit(sessionId, 'tcp_connection');
     }
   }
@@ -175,6 +195,7 @@ export class SessionService {
       session.stats.tcp.totalDownlinkBytes += bytes;
     });
     if (updated) {
+      tcpBytesCounter.inc({ direction }, bytes);
       this.scheduleSnapshotEmit(sessionId, 'tcp_traffic');
     }
   }
@@ -184,12 +205,13 @@ export class SessionService {
       session.stats.tcp.totalErrors += 1;
     });
     if (updated) {
+      tcpErrorsCounter.inc();
       this.scheduleSnapshotEmit(sessionId, 'tcp_error');
     }
   }
 
   public recordHttpTraffic(sessionId: string, metrics: HttpTrafficMetrics) {
-    const method = metrics.method;
+    const method = metrics.method || 'UNKNOWN';
     const path = metrics.path;
     const requestBytes = this.normalizeIncrement(metrics.requestBytes);
     const responseBytes = this.normalizeIncrement(metrics.responseBytes);
@@ -198,6 +220,8 @@ export class SessionService {
       ? metrics.statusCode
       : 0;
     const aborted = Boolean(metrics.aborted);
+    const statusClass = toStatusClass(statusCode);
+    const abortedLabel = booleanLabel(aborted);
 
     const updated = this.updateSessionStats(sessionId, (session) => {
       session.stats.http.totalRequests += 1;
@@ -212,6 +236,20 @@ export class SessionService {
     if (!updated) {
       return;
     }
+
+    httpForwardRequestsCounter.inc({
+      method,
+      status_class: statusClass,
+      aborted: abortedLabel,
+    });
+    httpForwardDurationHistogram.observe(
+      {
+        method,
+        status_class: statusClass,
+        aborted: abortedLabel,
+      },
+      durationMs / 1000,
+    );
 
     this.eventEmitter.emit(SESSION_HTTP_REQUEST_EVENT, {
       sessionId,
