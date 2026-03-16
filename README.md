@@ -1,130 +1,126 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Hole
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+English | [한국어](./README.ko.md)
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+`hole` is an SSH-based tunneling server for exposing local HTTP and TCP services through a single public domain. Each SSH connection creates an isolated session, assigns random forwarding hosts, and publishes live session updates over Server-Sent Events.
 
-## Description
+## What It Does
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- Accepts SSH connections and allocates a dedicated session for each client
+- Creates remote port forwards for raw TCP traffic
+- Routes HTTP requests from `<random-host>.<DOMAIN>` to the forwarded local service
+- Streams session snapshots and request events over SSE
+- Exposes Prometheus metrics for sessions, forwards, traffic, authentication, and SSE usage
 
-## Project setup
+## How It Works
 
-```bash
-$ pnpm install
+1. A client connects to the SSH server.
+2. The server creates a session and prints session metadata in the shell.
+3. The client requests a remote port forward with `tcpip-forward`.
+4. `hole` allocates a tunnel port and a random HTTP subdomain for that forward.
+5. Incoming traffic is routed to the forwarded service:
+   - HTTP: `https://<random-host>.<DOMAIN>`
+   - TCP: `<DOMAIN>:<allocated-port>`
+6. Session changes are broadcast through `GET /session/:id/events`.
+
+## Session Shell Output
+
+When a shell is opened over SSH, the server prints the current session information:
+
+```text
+sessionId: <session-id>
+sessionEvents: https://<DOMAIN>/session/<session-id>/events (SSE)
+connectedAt: 2026-03-16T00:00:00.000Z
+
+forwards:
+- http: https://<random-host>.<DOMAIN>, tcp: <DOMAIN>:<allocated-port>
 ```
 
-## Compile and run the project
+The shell output is refreshed automatically when a forward is added or removed.
 
-```bash
-# development
-$ pnpm run start
+## Endpoints
 
-# watch mode
-$ pnpm run start:dev
+- `GET /metrics`
+  - Prometheus metrics endpoint
+- `GET /session/:id/events`
+  - SSE stream with session snapshots, HTTP request events, and session deletion events
 
-# production mode
-$ pnpm run start:prod
-```
+## Configuration
 
-## SSH authentication config
-
-You can choose SSH authentication mode with env values:
+The server reads its runtime configuration from environment variables:
 
 ```bash
 DOMAIN=example.com
 FORWARD_TARGET_HOST=127.0.0.1
-SSH_AUTH_MODE=noauth|password
-SSH_AUTH_USERNAME=optional-username
-SSH_AUTH_PASSWORD=required-when-password-mode
-SSH_HOST_KEY_PATH=./test.key
+HTTP_PORT=3000
+SSH_HOST=0.0.0.0
+SSH_PORT=2222
+SSH_HOST_KEY_PATH=./host.key
+SSH_AUTH_MODE=noauth
+SSH_AUTH_USERNAME=
+SSH_AUTH_PASSWORD=
+TUNNEL_PORT_RANGE=40000-40100
 ```
 
-- `DOMAIN`: used to match incoming hostnames like `<forwardHost>.<domain>`.
-- `FORWARD_TARGET_HOST`: internal proxy target host for forwarded traffic.
-- `noauth`: accepts any auth attempt.
-- `password`: checks `SSH_AUTH_PASSWORD` (and `SSH_AUTH_USERNAME` if set).
-- If `SSH_HOST_KEY_PATH` does not exist, server generates ED25519 host key automatically.
+### Environment Variables
 
-## Session API
+- `DOMAIN`: Base domain used for generated HTTP tunnel hosts
+- `FORWARD_TARGET_HOST`: Internal target host used when proxying HTTP traffic to the forwarded port
+- `HTTP_PORT`: HTTP server port for metrics, HTTP forwarding, and session SSE
+- `SSH_HOST`: SSH bind address
+- `SSH_PORT`: SSH bind port
+- `SSH_HOST_KEY_PATH`: Path to the SSH host key file. If the file does not exist, an ED25519 key pair is generated automatically.
+- `SSH_AUTH_MODE`: SSH authentication mode. Supported values are `noauth` and `password`.
+- `SSH_AUTH_USERNAME`: Optional username restriction when `SSH_AUTH_MODE=password`
+- `SSH_AUTH_PASSWORD`: Required password when `SSH_AUTH_MODE=password`
+- `TUNNEL_PORT_RANGE`: Optional port allocation range in `min-max` format
 
-- `GET /session/:id`
-  - returns assigned forward ports, host addresses, and session duration.
-- `GET /session/:id/events`
-  - SSE stream for session events.
+## Getting Started
 
-## SSH session info response
-
-- On SSH shell connection, server prints JSON `session.info`.
-- When forward is added/removed, updated `session.info` is printed automatically.
-- In shell, you can type `session-info` to print current session info again.
-
-## Run tests
+### Install
 
 ```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+pnpm install
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### Run
 
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+# development
+pnpm run start:dev
+
+# production
+pnpm run build
+pnpm run start:prod
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### Test
 
-## Resources
+```bash
+pnpm run test
+pnpm run test:e2e
+pnpm run test:cov
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+## Observability
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+`hole` tracks:
 
-## Support
+- active sessions and total session lifecycle events
+- active forwards and failed port allocations
+- SSH authentication attempts
+- forwarded TCP connections, bytes, and errors
+- forwarded HTTP request counts and latency histograms
+- active SSE connections and emitted SSE event counts
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## Stack
 
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+- NestJS
+- TypeScript
+- `ssh2`
+- `http-proxy-middleware`
+- `prom-client`
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+MIT

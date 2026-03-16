@@ -1,10 +1,10 @@
 {
   "name": "hole",
   "version": "0.0.1",
-  "description": "",
+  "description": "SSH-based tunneling server for exposing local HTTP and TCP services through a public domain.",
   "author": "",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
