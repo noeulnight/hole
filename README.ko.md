@@ -113,6 +113,12 @@ pnpm run test:cov
 - 포워딩된 HTTP 요청 수와 지연 시간 히스토그램
 - 활성 SSE 연결 수와 발행된 SSE 이벤트 수
 
+## Grafana 대시보드
+
+바로 import 가능한 Grafana 대시보드 JSON이 `ops/grafana/dashboards/hole-overview.json`에 포함되어 있습니다.
+
+![Grafana dashboard](./docs/images/grafana-hole-dashboard.png)
+
 ## 기술 스택
 
 - NestJS

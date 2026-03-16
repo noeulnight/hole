@@ -113,6 +113,12 @@ pnpm run test:cov
 - forwarded HTTP request counts and latency histograms
 - active SSE connections and emitted SSE event counts
 
+## Grafana Dashboard
+
+A ready-to-import Grafana dashboard is included at `ops/grafana/dashboards/hole-overview.json`.
+
+![Grafana dashboard](./docs/images/grafana-hole-dashboard.png)
+
 ## Stack
 
 - NestJS
