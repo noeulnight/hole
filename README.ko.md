@@ -119,14 +119,6 @@ pnpm run test:cov
 
 ![Grafana dashboard](./docs/images/grafana-hole-dashboard.png)
 
-## 기술 스택
-
-- NestJS
-- TypeScript
-- `ssh2`
-- `http-proxy-middleware`
-- `prom-client`
-
 ## 라이선스
 
 MIT

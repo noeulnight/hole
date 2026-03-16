@@ -119,14 +119,6 @@ A ready-to-import Grafana dashboard is included at `ops/grafana/dashboards/hole-
 
 ![Grafana dashboard](./docs/images/grafana-hole-dashboard.png)
 
-## Stack
-
-- NestJS
-- TypeScript
-- `ssh2`
-- `http-proxy-middleware`
-- `prom-client`
-
 ## License
 
 MIT
