@@ -79,6 +79,7 @@ export class ForwardMiddleware implements NestMiddleware<
   private readonly proxy = createProxyMiddleware<ForwardRequest, Response>({
     target: 'http://127.0.0.1',
     changeOrigin: false,
+    ws: true,
     xfwd: true,
     secure: false,
     router: (req) => req.tunnelTarget,
