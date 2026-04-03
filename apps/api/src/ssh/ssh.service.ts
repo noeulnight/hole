@@ -14,6 +14,7 @@ import {
 } from 'ssh2';
 import { PortService } from './port.service';
 import { SessionService } from 'src/session/session.service';
+import { resolveWorkspacePath } from 'src/common/utils/workspace-path';
 import {
   forwardRequestsCounter,
   sshAuthAttemptsCounter,
@@ -81,7 +82,7 @@ export class SshService extends SSHServer implements OnModuleDestroy {
       'SSH_HOST_KEY_PATH',
       './test.key',
     );
-    const hostKey = loadOrCreateHostKey(hostKeyPath);
+    const hostKey = loadOrCreateHostKey(resolveWorkspacePath(hostKeyPath));
     super({ hostKeys: [hostKey.hostKey] }, (client) =>
       this.handleClient(client),
     );

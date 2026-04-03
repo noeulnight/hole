@@ -2,7 +2,7 @@
 
 English | [한국어](./README.ko.md)
 
-`hole` is an SSH-based tunneling server for exposing local HTTP and TCP services through a single public domain. Each SSH connection creates an isolated session, assigns random forwarding hosts, and publishes live session updates over Server-Sent Events.
+`hole` is an SSH-based tunneling server for exposing local HTTP and TCP services through a single public domain. The repository is organized as a pnpm workspace monorepo with a NestJS API in `apps/api` and a Vite + React + TypeScript frontend in `apps/web`.
 
 ## What It Does
 
@@ -86,10 +86,19 @@ pnpm install
 ### Run
 
 ```bash
-# development
-pnpm run start:dev
+# install workspace dependencies
+pnpm install
 
-# production
+# run the Nest API only
+pnpm run dev:api
+
+# run the Vite frontend only
+pnpm run dev:web
+
+# run both apps together
+pnpm run dev
+
+# production builds
 pnpm run build
 pnpm run start:prod
 ```
@@ -101,6 +110,18 @@ pnpm run test
 pnpm run test:e2e
 pnpm run test:cov
 ```
+
+## Workspace Layout
+
+- `apps/api`: NestJS tunnel server, SSH handling, metrics, and session SSE
+- `apps/web`: Vite React frontend for operational UI work
+
+## Containers
+
+- API image build: `docker build -f Dockerfile -t hole-api .`
+- Web image build: `docker build -f Dockerfile.web -t hole-web .`
+
+The web container serves the Vite build through Nginx with SPA fallback. API and web image publishing are split into separate GitHub Actions workflows.
 
 ## Observability
 

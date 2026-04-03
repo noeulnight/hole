@@ -2,7 +2,7 @@
 
 [English](./README.md) | 한국어
 
-`hole`은 단일 공용 도메인 아래에서 로컬 HTTP/TCP 서비스를 외부에 노출할 수 있게 해주는 SSH 기반 터널링 서버입니다. 각 SSH 연결은 독립적인 세션으로 생성되며, 무작위 포워딩 호스트를 할당하고, 세션 상태를 Server-Sent Events로 실시간 제공합니다.
+`hole`은 단일 공용 도메인 아래에서 로컬 HTTP/TCP 서비스를 외부에 노출할 수 있게 해주는 SSH 기반 터널링 서버입니다. 현재 저장소는 `apps/api`의 NestJS API와 `apps/web`의 Vite + React + TypeScript 프런트엔드를 갖는 pnpm 워크스페이스 모노레포로 구성됩니다.
 
 ## 주요 기능
 
@@ -86,10 +86,19 @@ pnpm install
 ### 실행
 
 ```bash
-# 개발 모드
-pnpm run start:dev
+# 워크스페이스 의존성 설치
+pnpm install
 
-# 프로덕션
+# Nest API만 실행
+pnpm run dev:api
+
+# Vite 프런트엔드만 실행
+pnpm run dev:web
+
+# 두 앱을 함께 실행
+pnpm run dev
+
+# 프로덕션 빌드
 pnpm run build
 pnpm run start:prod
 ```
@@ -101,6 +110,18 @@ pnpm run test
 pnpm run test:e2e
 pnpm run test:cov
 ```
+
+## 워크스페이스 구조
+
+- `apps/api`: NestJS 터널 서버, SSH 처리, metrics, 세션 SSE
+- `apps/web`: 운영 UI를 위한 Vite React 프런트엔드
+
+## 컨테이너
+
+- API 이미지 빌드: `docker build -f Dockerfile -t hole-api .`
+- Web 이미지 빌드: `docker build -f Dockerfile.web -t hole-web .`
+
+Web 컨테이너는 Nginx로 Vite 빌드 결과를 SPA fallback과 함께 제공합니다. API와 Web 이미지 배포용 GitHub Actions workflow도 분리되어 있습니다.
 
 ## 관측성
 

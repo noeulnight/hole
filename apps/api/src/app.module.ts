@@ -4,6 +4,7 @@ import {
   NestModule,
   RequestMethod,
 } from '@nestjs/common';
+import { resolveWorkspacePath } from 'src/common/utils/workspace-path';
 import { AppController } from './app.controller';
 import { ConfigModule } from '@nestjs/config';
 import { validationSchema } from './common/config';
@@ -14,7 +15,11 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, validationSchema }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validationSchema,
+      envFilePath: [resolveWorkspacePath('.env'), '.env'],
+    }),
     EventEmitterModule.forRoot(),
     SshModule,
     SessionModule,

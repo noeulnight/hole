@@ -27,16 +27,30 @@ export interface SessionSnapshotPayload {
   forwards: SessionForwardSnapshot[];
 }
 
+export interface SessionBodyPayload {
+  content: string;
+  encoding: 'utf8' | 'base64';
+  byteLength: number;
+}
+
 export interface SessionHttpRequestPayload {
   sessionId: string;
   at: string;
   method: string;
   path: string;
+  host?: string;
+  ip?: string;
+  userAgent?: string;
+  requestContentType?: string;
+  responseContentType?: string;
+  referer?: string;
   statusCode: number;
   requestBytes: number;
   responseBytes: number;
   durationMs: number;
   aborted: boolean;
+  requestBody?: SessionBodyPayload;
+  responseBody?: SessionBodyPayload;
 }
 
 export interface SessionDeletedPayload {

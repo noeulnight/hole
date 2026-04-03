@@ -1,0 +1,11 @@
+.git
+.github
+.omx
+.pnpm-store
+node_modules
+dist
+coverage
+apps/*/dist
+apps/*/node_modules
+.DS_Store
+*.log

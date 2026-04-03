@@ -28,11 +28,19 @@ import {
 interface HttpTrafficMetrics {
   method: string;
   path: string;
+  host?: string;
+  ip?: string;
+  userAgent?: string;
+  requestContentType?: string;
+  responseContentType?: string;
+  referer?: string;
   statusCode: number;
   requestBytes: number;
   responseBytes: number;
   durationMs: number;
   aborted: boolean;
+  requestBody?: SessionHttpRequestPayload['requestBody'];
+  responseBody?: SessionHttpRequestPayload['responseBody'];
 }
 
 const SNAPSHOT_EMIT_DEBOUNCE_MS = 250;
@@ -256,11 +264,19 @@ export class SessionService {
       at: new Date().toISOString(),
       method,
       path,
+      host: metrics.host,
+      ip: metrics.ip,
+      userAgent: metrics.userAgent,
+      requestContentType: metrics.requestContentType,
+      responseContentType: metrics.responseContentType,
+      referer: metrics.referer,
       statusCode,
       requestBytes,
       responseBytes,
       durationMs,
       aborted,
+      requestBody: metrics.requestBody,
+      responseBody: metrics.responseBody,
     } satisfies SessionHttpRequestPayload);
     this.scheduleSnapshotEmit(sessionId, 'http_traffic');
   }

@@ -1,7 +1,10 @@
 # compiled output
 /dist
-/node_modules
+/apps/*/dist
+node_modules
+.pnpm-store
 /build
+*.tsbuildinfo
 
 # Logs
 logs

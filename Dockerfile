@@ -1,34 +1,36 @@
-FROM node:25-alpine AS base
+FROM node:22-alpine AS base
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+
+RUN corepack enable
 
 WORKDIR /app
 
-RUN npm install -g pnpm
-
 FROM base AS deps
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+
 RUN pnpm install --frozen-lockfile
 
-FROM base AS build
+FROM deps AS build
 
-COPY package.json pnpm-lock.yaml ./
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN pnpm build
 
-FROM base AS prod-deps
+RUN pnpm --filter @hole/api build
+RUN pnpm --filter @hole/api deploy --prod /prod/api
 
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --prod --frozen-lockfile
-
-FROM node:25-alpine AS runtime
+FROM node:22-alpine AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY --from=build /app/package.json ./package.json
-COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
+COPY --from=build /prod/api/package.json ./package.json
+COPY --from=build /prod/api/node_modules ./node_modules
+COPY --from=build /app/dist/apps/api ./dist
 
-EXPOSE 3000
-CMD ["node", "dist/main"]
+EXPOSE 3000 2222
+
+CMD ["node", "dist/main.js"]
