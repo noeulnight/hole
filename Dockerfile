@@ -20,7 +20,7 @@ FROM deps AS build
 COPY . .
 
 RUN pnpm --filter @hole/api build
-RUN pnpm --filter @hole/api deploy --prod /prod/api
+RUN pnpm --filter @hole/api deploy --legacy --prod /prod/api
 
 FROM node:22-alpine AS runtime
 
