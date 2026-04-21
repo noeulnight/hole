@@ -23,6 +23,34 @@
    - TCP: `<DOMAIN>:<allocated-port>`
 6. 세션 변경 사항은 `GET /session/:id/events` SSE 스트림으로 전파됩니다.
 
+### SSH 터널 흐름
+
+```mermaid
+flowchart TB
+    subgraph hole 서버
+        A[SSH 서버]
+        B[세션]
+        C[포워드 매핑]
+        D[공개 HTTP 호스트\nrandom-host.DOMAIN]
+        E[공개 TCP 포트\nDOMAIN:allocated-port]
+        F[SSE 엔드포인트\nGET /session/:id/events]
+        A --> B
+        B --> C
+        C --> D
+        C --> E
+        B --> F
+    end
+```
+
+핵심만 보면 이렇게 동작합니다.
+
+1. `hole`이 SSH 연결을 받아 세션을 만듭니다.
+2. 세션 안에 포워드 매핑 정보를 저장합니다.
+3. 이 매핑이 다음 공개 주소로 노출됩니다.
+   - HTTP 호스트: `https://<random-host>.<DOMAIN>`
+   - TCP 포트: `<DOMAIN>:<allocated-port>`
+   - SSE 스트림: `GET /session/:id/events`
+
 ## SSH 셸 출력
 
 SSH 셸을 열면 서버가 현재 세션 정보를 아래 형식으로 출력합니다.

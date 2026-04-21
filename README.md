@@ -23,6 +23,44 @@ English | [한국어](./README.ko.md)
    - TCP: `<DOMAIN>:<allocated-port>`
 6. Session changes are broadcast through `GET /session/:id/events`.
 
+### SSH Tunnel Flow
+
+```mermaid
+flowchart TB
+    subgraph hole Server
+        A[SSH server]
+        B[Session]
+        C[Forward mapping]
+        D[Public HTTP host\nrandom-host.DOMAIN]
+        E[Public TCP port\nDOMAIN:allocated-port]
+        F[SSE endpoint\nGET /session/:id/events]
+        A --> B
+        B --> C
+        C --> D
+        C --> E
+        B --> F
+    end
+```
+
+Read it in three steps:
+
+1. `hole` accepts an SSH connection and creates a session.
+2. The session stores forward mapping information.
+3. That mapping is exposed as:
+   - one HTTP hostname: `https://<random-host>.<DOMAIN>`
+   - one TCP port: `<DOMAIN>:<allocated-port>`
+   - one SSE stream: `GET /session/:id/events`
+
+`hole` does not expose the local app directly. It first accepts an SSH connection, then creates a server-side forward entry made of:
+
+- one allocated TCP port from `TUNNEL_PORT_RANGE`
+- one random HTTP host mapped under `DOMAIN`
+- one session record used for shell output, metrics, and SSE events
+
+For HTTP traffic, `ForwardMiddleware` parses the incoming host, finds the matching forward in `SessionService`, and proxies the request to `FORWARD_TARGET_HOST:<allocated-port>`. That allocated port is backed by a temporary TCP server created during `tcpip-forward`, and each incoming socket is bridged through `client.forwardOut(...)` over the existing SSH connection to the client-side local service.
+
+For raw TCP traffic, clients connect straight to `<DOMAIN>:<allocated-port>`. The temporary TCP server accepts the socket and uses the same `forwardOut(...)` bridge, so both HTTP and TCP tunnels ultimately reuse the same SSH session while keeping routing metadata on the server.
+
 ## Session Shell Output
 
 When a shell is opened over SSH, the server prints the current session information:
