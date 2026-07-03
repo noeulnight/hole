@@ -1,4 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
+import { ArrowRight } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 export default function SessionForm({
   initialValue,
@@ -24,17 +28,25 @@ export default function SessionForm({
   }
 
   return (
-    <form className="session-form" onSubmit={handleSubmit}>
-      <label className="session-field">
-        <span>Session ID</span>
-        <input
+    <form
+      className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
+      onSubmit={handleSubmit}
+    >
+      <label className="grid gap-2">
+        <span className="text-sm font-medium text-muted-foreground">
+          Session ID
+        </span>
+        <Input
           name="sessionId"
           value={sessionInput}
           onChange={(event) => setSessionInput(event.target.value)}
           placeholder="Paste a session id"
         />
       </label>
-      <button type="submit">Open session</button>
+      <Button className="h-10" type="submit">
+        Open session
+        <ArrowRight aria-hidden="true" />
+      </Button>
     </form>
   );
 }

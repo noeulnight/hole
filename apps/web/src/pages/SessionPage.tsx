@@ -9,10 +9,7 @@ export default function SessionPage() {
   }
 
   return (
-    <main className="shell dashboard-shell">
-      <header className="dashboard-brand">
-        <span>Hole</span>
-      </header>
+    <main className="mx-auto min-h-screen w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <SessionStream sessionId={sessionId} />
     </main>
   );

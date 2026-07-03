@@ -213,8 +213,8 @@ export class SshService extends SSHServer implements OnModuleDestroy {
       const session = accept();
       let shellStream: ServerChannel | null = null;
 
-      session.on('pty', (accept) => accept());
-      session.on('window-change', (accept) => accept());
+      session.on('pty', (accept) => accept?.());
+      session.on('window-change', (accept) => accept?.());
       session.on('env', (accept) => accept?.());
       session.on('signal', (accept, _reject, info) => {
         accept?.();
@@ -352,7 +352,7 @@ export class SshService extends SSHServer implements OnModuleDestroy {
 
     const lines = [
       `sessionId: ${sessionId}`,
-      `sessionEvents: https://${this.domain}/session/${sessionId}/events (SSE)`,
+      `sessionStats: https://${this.domain}/session/${sessionId}`,
       `connectedAt: ${session.stats.connectedAt.toISOString()}`,
       '',
       'forwards:',
