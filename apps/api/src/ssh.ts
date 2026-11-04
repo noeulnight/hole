@@ -200,6 +200,28 @@ export class TunnelServer extends SSHServer {
   }
 
   private handleReady(sessionId: string, client: Connection) {
+    // OpenSSH can request the shell before tcpip-forward has finished binding.
+    const forwardDeadline = setTimeout(() => {
+      if (this.sessions.get(sessionId)?.forwards.size) return;
+
+      const port = (this.address() as { port: number }).port;
+      const portOption = port === 22 ? '' : ` -p ${port}`;
+      const message = [
+        'Reverse port forwarding is required. No tunnel was opened within 5 seconds.',
+        `Usage: ssh${portOption} -R 0:127.0.0.1:3000 ${this.domain}`,
+        '',
+      ].join('\r\n');
+      for (const stream of this.shellStreamsBySession.get(sessionId) ?? []) {
+        if (!stream.writable || stream.destroyed) continue;
+        stream.stderr.write(message);
+        stream.exit(1);
+        stream.end();
+      }
+      client.end();
+    }, 5000);
+    forwardDeadline.unref();
+    client.once('close', () => clearTimeout(forwardDeadline));
+
     client.on('request', (accept, reject, name, info: TcpipBindInfo) => {
       if (name === 'tcpip-forward') {
         this.handleForwardRequest(sessionId, client, info, accept, reject);

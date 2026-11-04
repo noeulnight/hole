@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from 'ssh2';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import type { ConnectConfig } from 'ssh2';
+import type { ConnectConfig, Connection } from 'ssh2';
 import request from 'supertest';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createServerRuntime } from '../src/app';
@@ -194,6 +194,65 @@ describe('SSH tunnel through the Express server', () => {
       }),
     ).rejects.toThrow('authentication');
   });
+
+  it.each([true, false])(
+    'disconnects without reverse forwarding (shell: %s)',
+    async (withShell) => {
+      const client = new Client();
+      clients.add(client);
+      const accepted = once(runtime.ssh, 'connection');
+      await connect(client, (runtime.ssh.address() as AddressInfo).port, {
+        password: 'secret',
+      });
+      const [serverClient] = (await accepted) as [Connection];
+      const serverClosed = once(serverClient, 'close');
+      const disconnected = once(client, 'close');
+      let output = '';
+      let exitCode: number | undefined;
+      if (withShell) {
+        await new Promise<void>((resolve, reject) => {
+          client.shell((error, stream) => {
+            if (error) return reject(error);
+            stream.stderr.on('data', (chunk: Buffer) => {
+              output += chunk.toString();
+            });
+            stream.on('exit', (code: number) => {
+              exitCode = code;
+            });
+            resolve();
+          });
+        });
+      }
+      await disconnected;
+      await serverClosed;
+      if (withShell) {
+        expect(output).toContain('Reverse port forwarding is required.');
+        expect(output).toContain('-R 0:127.0.0.1:3000 example.test');
+        expect(exitCode).toBe(1);
+      }
+      expect(runtime.sessions.getConnectionCounts()).toEqual({
+        sessions: 0,
+        tunnels: 0,
+      });
+    },
+    10000,
+  );
+
+  it('allows a shell before reverse forwarding and keeps the tunnel after the deadline', async () => {
+    const client = new Client();
+    clients.add(client);
+    await connect(client, (runtime.ssh.address() as AddressInfo).port, {
+      password: 'secret',
+    });
+    const sessionId = await sessionInfo(client);
+    await new Promise<void>((resolve, reject) => {
+      client.forwardIn('localhost', 0, (error) =>
+        error ? reject(error) : resolve(),
+      );
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 5200));
+    expect(runtime.sessions.get(sessionId)?.forwards.size).toBe(1);
+  }, 10000);
 
   it('forwards HTTPS and secure WebSocket through a TLS edge and real SSH tunnel', async () => {
     const keyPath = join(directory, 'edge.key');
