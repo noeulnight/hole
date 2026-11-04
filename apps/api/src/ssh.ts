@@ -1,24 +1,20 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { timingSafeEqual } from 'crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
-import { createServer, Socket } from 'net';
-import { dirname, resolve } from 'path';
-import {
+import type { Config } from './config';
+import { timingSafeEqual } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import type { Socket } from 'node:net';
+import { createServer } from 'node:net';
+import { dirname, resolve } from 'node:path';
+import type {
   AuthContext,
   Connection,
   ServerChannel,
-  Server as SSHServer,
   TcpipBindInfo,
-  utils,
 } from 'ssh2';
-import { PortService } from './port.service';
-import { SessionService } from 'src/session/session.service';
-import { resolveWorkspacePath } from 'src/common/utils/workspace-path';
-import {
-  forwardRequestsCounter,
-  sshAuthAttemptsCounter,
-} from 'src/common/metrics';
+import { Server as SSHServer, utils } from 'ssh2';
+import type { PortPool } from './ports';
+import type { SessionStore } from './sessions';
+import { resolveWorkspacePath } from './utils/workspace-path';
+import { forwardRequestsCounter, sshAuthAttemptsCounter } from './metrics';
 
 type AuthMode = 'noauth' | 'password';
 
@@ -59,9 +55,8 @@ function loadOrCreateHostKey(hostKeyPath: string): HostKeyResult {
   };
 }
 
-@Injectable()
-export class SshService extends SSHServer implements OnModuleDestroy {
-  private readonly logger: Logger = new Logger(SshService.name);
+export class TunnelServer extends SSHServer {
+  private readonly logger = console;
   private readonly authMode: AuthMode;
   private readonly authUsername?: string;
   private readonly authPassword?: string;
@@ -72,30 +67,27 @@ export class SshService extends SSHServer implements OnModuleDestroy {
     Set<ServerChannel>
   >();
   private readonly domain: string;
+  private readonly clients = new Map<Connection, string>();
 
   constructor(
-    private readonly sessionService: SessionService,
-    private readonly configService: ConfigService,
-    private readonly portService: PortService,
+    private readonly sessions: SessionStore,
+    config: Config,
+    private readonly ports: PortPool,
   ) {
-    const hostKeyPath = configService.get<string>(
-      'SSH_HOST_KEY_PATH',
-      './test.key',
-    );
+    const hostKeyPath = config.SSH_HOST_KEY_PATH;
     const hostKey = loadOrCreateHostKey(resolveWorkspacePath(hostKeyPath));
     super({ hostKeys: [hostKey.hostKey] }, (client) =>
       this.handleClient(client),
     );
 
-    this.sshHost = this.configService.get<string>('SSH_HOST', '0.0.0.0');
-    this.sshPort = this.configService.get<number>('SSH_PORT', 2222);
-    this.authMode = this.configService.get<AuthMode>('SSH_AUTH_MODE', 'noauth');
-    this.authUsername = this.configService.get<string>('SSH_AUTH_USERNAME');
-    this.domain = this.configService.get<string>('DOMAIN', 'localhost');
+    this.sshHost = config.SSH_HOST;
+    this.sshPort = config.SSH_PORT;
+    this.authMode = config.SSH_AUTH_MODE;
+    this.authUsername = config.SSH_AUTH_USERNAME;
+    this.domain = config.DOMAIN;
 
     if (this.authMode === 'password') {
-      this.authPassword =
-        this.configService.getOrThrow<string>('SSH_AUTH_PASSWORD');
+      this.authPassword = config.SSH_AUTH_PASSWORD;
     }
 
     if (hostKey.generated) {
@@ -110,15 +102,25 @@ export class SshService extends SSHServer implements OnModuleDestroy {
     }
 
     this.logger.log(`SSH auth mode: ${this.authMode}`);
-    this.listen(this.sshPort, this.sshHost, () => {
-      this.logger.log(
-        `SSH server successfully started (${this.sshHost}:${this.sshPort})`,
-      );
+  }
+
+  public start(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const onError = (error: Error) => reject(error);
+      this.once('error', onError);
+      this.listen(this.sshPort, this.sshHost, () => {
+        this.off('error', onError);
+        this.logger.log(
+          `SSH server successfully started (${this.sshHost}:${this.sshPort})`,
+        );
+        resolve();
+      });
     });
   }
 
   private handleClient(client: Connection) {
-    const session = this.sessionService.create();
+    const session = this.sessions.create();
+    this.clients.set(client, session.id);
 
     // Register error handler before authentication/ready to avoid uncaught socket errors.
     client.on('error', (error) => {
@@ -126,7 +128,10 @@ export class SshService extends SSHServer implements OnModuleDestroy {
     });
     client.on('authentication', (ctx) => this.handleAuthentication(ctx));
     client.on('ready', () => this.handleReady(session.id, client));
-    client.on('close', () => this.handleClose(session.id));
+    client.on('close', () => {
+      this.clients.delete(client);
+      this.handleClose(session.id);
+    });
   }
 
   private handleAuthentication(context: AuthContext) {
@@ -188,9 +193,9 @@ export class SshService extends SSHServer implements OnModuleDestroy {
 
   private handleClose(sessionId: string) {
     this.cleanupSessionShellStreams(sessionId);
-    const releasedForwards = this.sessionService.delete(sessionId);
+    const releasedForwards = this.sessions.delete(sessionId);
     for (const port of releasedForwards) {
-      this.portService.release(port);
+      this.ports.release(port);
     }
   }
 
@@ -256,30 +261,36 @@ export class SshService extends SSHServer implements OnModuleDestroy {
     reject?: () => void,
   ) {
     if (!reject || !accept) return;
-    const { bindPort: requestedPort, bindAddr: requrestedHost } = info;
+    const { bindPort: requestedPort, bindAddr: requestedHost } = info;
     if (requestedPort !== 0) {
       forwardRequestsCounter.inc({ result: 'rejected' });
       return reject();
     }
 
-    const bindedPort = this.portService.acquire();
-    if (!bindedPort) {
+    const allocatedPort = this.ports.acquire();
+    if (!allocatedPort) {
       forwardRequestsCounter.inc({ result: 'rejected' });
       return reject();
     }
 
     const server = createServer((socket) =>
-      this.forwardSocket(client, sessionId, requrestedHost, bindedPort, socket),
+      this.forwardSocket(
+        client,
+        sessionId,
+        requestedHost,
+        allocatedPort,
+        socket,
+      ),
     );
 
     server.once('error', (error) => {
       this.logger.error(error);
     });
 
-    server.listen(bindedPort, () => {
-      const forward = this.sessionService.addForward(
+    server.listen(allocatedPort, () => {
+      const forward = this.sessions.addForward(
         sessionId,
-        bindedPort,
+        allocatedPort,
         server,
       );
       if (!forward) {
@@ -287,7 +298,7 @@ export class SshService extends SSHServer implements OnModuleDestroy {
         return reject();
       }
       forwardRequestsCounter.inc({ result: 'accepted' });
-      accept(bindedPort);
+      accept(allocatedPort);
       this.broadcastSessionInfo(sessionId);
     });
   }
@@ -298,8 +309,8 @@ export class SshService extends SSHServer implements OnModuleDestroy {
     accept: () => void,
   ) {
     const { bindPort } = info;
-    this.portService.release(bindPort);
-    this.sessionService.removeForwardByPort(sessionId, bindPort);
+    this.ports.release(bindPort);
+    this.sessions.removeForwardByPort(sessionId, bindPort);
     accept?.();
     this.broadcastSessionInfo(sessionId);
   }
@@ -347,7 +358,7 @@ export class SshService extends SSHServer implements OnModuleDestroy {
   }
 
   private writeSessionInfoToStream(sessionId: string, stream: ServerChannel) {
-    const session = this.sessionService.get(sessionId);
+    const session = this.sessions.get(sessionId);
     if (!session) return;
 
     const lines = [
@@ -386,7 +397,7 @@ export class SshService extends SSHServer implements OnModuleDestroy {
     bindPort: number,
     socket: Socket,
   ) {
-    this.sessionService.recordTcpConnection(sessionId);
+    this.sessions.recordTcpConnection(sessionId);
 
     let capturedError: string | undefined;
 
@@ -401,7 +412,7 @@ export class SshService extends SSHServer implements OnModuleDestroy {
     });
     socket.on('error', (error: Error) => {
       capturedError ??= error.message;
-      this.sessionService.recordTcpError(sessionId);
+      this.sessions.recordTcpError(sessionId);
     });
 
     client.forwardOut(
@@ -412,7 +423,7 @@ export class SshService extends SSHServer implements OnModuleDestroy {
       (err, channel) => {
         if (err) {
           capturedError ??= err.message;
-          this.sessionService.recordTcpError(sessionId);
+          this.sessions.recordTcpError(sessionId);
           finalize('forward_error', capturedError);
           socket.destroy();
           return;
@@ -420,7 +431,7 @@ export class SshService extends SSHServer implements OnModuleDestroy {
 
         channel.on('error', (error: Error) => {
           capturedError ??= error.message;
-          this.sessionService.recordTcpError(sessionId);
+          this.sessions.recordTcpError(sessionId);
         });
         channel.on('close', () => {
           finalize('channel', capturedError);
@@ -430,24 +441,23 @@ export class SshService extends SSHServer implements OnModuleDestroy {
         channel.pipe(socket);
 
         socket.on('data', (chunk: Buffer) => {
-          this.sessionService.recordTcpTraffic(
-            sessionId,
-            'uplink',
-            chunk.length,
-          );
+          this.sessions.recordTcpTraffic(sessionId, 'uplink', chunk.length);
         });
         channel.on('data', (chunk: Buffer) => {
-          this.sessionService.recordTcpTraffic(
-            sessionId,
-            'downlink',
-            chunk.length,
-          );
+          this.sessions.recordTcpTraffic(sessionId, 'downlink', chunk.length);
         });
       },
     );
   }
 
-  onModuleDestroy() {
-    this.close();
+  public stop(): Promise<void> {
+    return new Promise((resolve) => {
+      this.close(() => resolve());
+      for (const [client, sessionId] of this.clients) {
+        this.handleClose(sessionId);
+        client.end();
+      }
+      this.clients.clear();
+    });
   }
 }

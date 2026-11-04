@@ -1,4 +1,4 @@
-import type { SessionStats } from './session.interface';
+import type { SessionStats } from './types';
 
 export const SESSION_SNAPSHOT_EVENT = 'session.snapshot';
 export const SESSION_HTTP_REQUEST_EVENT = 'session.http_request';

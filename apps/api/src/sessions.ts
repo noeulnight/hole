@@ -1,16 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Session, SessionStats } from './session.interface';
-import { randomUUID } from 'crypto';
-import { Server } from 'net';
+import type { EventEmitter } from 'node:events';
+import type { Session, SessionStats } from './types';
+import { randomUUID } from 'node:crypto';
+import type { Server } from 'node:net';
+import type {
+  SessionHttpRequestPayload,
+  SessionSnapshotPayload,
+  SessionSnapshotReason,
+} from './session-events';
 import {
   SESSION_DELETED_EVENT,
   SESSION_HTTP_REQUEST_EVENT,
   SESSION_SNAPSHOT_EVENT,
-  SessionHttpRequestPayload,
-  SessionSnapshotPayload,
-  SessionSnapshotReason,
-} from './session.events';
+} from './session-events';
 import {
   booleanLabel,
   forwardsActiveGauge,
@@ -23,7 +24,7 @@ import {
   tcpConnectionsCounter,
   tcpErrorsCounter,
   toStatusClass,
-} from 'src/common/metrics';
+} from './metrics';
 
 interface HttpTrafficMetrics {
   method: string;
@@ -45,9 +46,8 @@ interface HttpTrafficMetrics {
 
 const SNAPSHOT_EMIT_DEBOUNCE_MS = 250;
 
-@Injectable()
-export class SessionService {
-  private readonly logger: Logger = new Logger(SessionService.name);
+export class SessionStore {
+  private readonly logger = console;
   private readonly session: Map<string, Session> = new Map();
   private readonly hostForwardTarget: Map<
     string,
@@ -58,7 +58,7 @@ export class SessionService {
   private readonly pendingSnapshotReasons: Map<string, SessionSnapshotReason> =
     new Map();
 
-  constructor(private readonly eventEmitter: EventEmitter2) {}
+  constructor(private readonly eventEmitter: EventEmitter) {}
 
   public get(sessionId: string): Session | undefined {
     return this.session.get(sessionId);

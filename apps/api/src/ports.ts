@@ -1,22 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { parsePortRange } from 'src/common/utils/parse-port';
+import type { Config } from './config';
+import { parsePortRange } from './utils/parse-port';
 import {
   portAcquireFailCounter,
   portPoolFreeGauge,
   portPoolUsedGauge,
-} from 'src/common/metrics';
+} from './metrics';
 
-@Injectable()
-export class PortService {
-  private readonly logger: Logger = new Logger(PortService.name);
+export class PortPool {
+  private readonly logger = console;
   private readonly freePorts: number[] = [];
   private readonly usedPorts = new Set<number>();
 
-  constructor(private readonly configService: ConfigService) {
-    const range = parsePortRange(
-      configService.getOrThrow<string>('TUNNEL_PORT_RANGE'),
-    );
+  constructor(config: Config) {
+    const range = parsePortRange(config.TUNNEL_PORT_RANGE);
     if (!range) throw new Error('TUNNEL_PORT_RANGE not parseable');
 
     for (let port = range.min; port <= range.max; port += 1) {

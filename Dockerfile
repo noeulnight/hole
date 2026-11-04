@@ -29,7 +29,7 @@ ENV NODE_ENV=production
 
 COPY --from=build /prod/api/package.json ./package.json
 COPY --from=build /prod/api/node_modules ./node_modules
-COPY --from=build /app/dist/apps/api ./dist
+COPY --from=build /app/apps/api/dist ./dist
 
 EXPOSE 3000 2222
 

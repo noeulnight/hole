@@ -1,15 +1,22 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { ConfigService } from '@nestjs/config';
-import { initializeMetrics } from './common/metrics';
+import { config as loadEnv } from 'dotenv';
+import { createServerRuntime } from './app';
+import { loadConfig } from './config';
+import { resolveWorkspacePath } from './utils/workspace-path';
 
 async function bootstrap() {
-  initializeMetrics();
-  const app = await NestFactory.create(AppModule);
-  const configService = app.get(ConfigService);
-  app.enableShutdownHooks();
-
-  const PORT = configService.get<number>('HTTP_PORT', 3000);
-  await app.listen(PORT);
+  loadEnv({ path: [resolveWorkspacePath('.env'), '.env'] });
+  const runtime = createServerRuntime(loadConfig());
+  await runtime.start();
+  const shutdown = () => {
+    void runtime.stop().catch((error: unknown) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 }
-void bootstrap();
+void bootstrap().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});

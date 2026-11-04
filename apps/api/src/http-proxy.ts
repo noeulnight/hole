@@ -1,23 +1,18 @@
-import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import type { Config } from './config';
+import { ServerResponse } from 'node:http';
+import type { IncomingMessage } from 'node:http';
+import type { Socket } from 'node:net';
+import type { Duplex } from 'node:stream';
 import type { NextFunction, Request, Response } from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { SessionService } from 'src/session/session.service';
-import type { SessionBodyPayload } from 'src/session/session.events';
+import { normalizeHost } from './utils/host';
+import type { SessionStore } from './sessions';
+import type { SessionBodyPayload } from './session-events';
 
-type ForwardRequest = Request & { tunnelTarget?: string; sessionId?: string };
-
-function normalizeHost(hostHeader?: string): string | undefined {
-  if (!hostHeader) {
-    return undefined;
-  }
-
-  try {
-    return new URL(`http://${hostHeader}`).hostname.toLowerCase();
-  } catch {
-    return undefined;
-  }
-}
+type ForwardRequest = IncomingMessage & {
+  tunnelTarget?: string;
+  sessionId?: string;
+};
 
 function parseContentLength(
   value: number | string | string[] | undefined,
@@ -149,64 +144,78 @@ function formatHostForUrl(host: string): string {
   return host;
 }
 
-@Injectable()
-export class ForwardMiddleware implements NestMiddleware<
-  ForwardRequest,
-  Response
-> {
-  private readonly logger = new Logger(ForwardMiddleware.name);
+export class HttpForwarder {
+  private readonly logger = console;
   private readonly baseDomain: string;
   private readonly forwardTargetHost: string;
   private readonly proxy = createProxyMiddleware<ForwardRequest, Response>({
     target: 'http://127.0.0.1',
     changeOrigin: false,
-    ws: true,
+    // The HTTP server routes upgrades explicitly, including the first request.
+    ws: false,
     xfwd: true,
     secure: false,
     router: (req) => req.tunnelTarget,
     on: {
       error: (error, req, res) => {
-        const response = res as Response;
         this.logger.warn(
           `HTTP forward failed (${req.method} ${req.url}): ${error.message}`,
         );
-        if (!response.headersSent) {
-          response.status(502).json({ message: 'Bad gateway' });
+        if (!(res instanceof ServerResponse)) {
+          res.destroy();
+          return;
         }
+        if (res.headersSent) {
+          res.destroy(error);
+          return;
+        }
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: 'Bad gateway' }));
       },
     },
   });
 
   constructor(
-    configService: ConfigService,
-    private readonly sessionService: SessionService,
+    config: Config,
+    private readonly sessions: SessionStore,
   ) {
-    this.baseDomain = configService.get<string>('DOMAIN') ?? 'localhost';
-    this.forwardTargetHost =
-      configService.get<string>('FORWARD_TARGET_HOST') ?? '127.0.0.1';
+    this.baseDomain = config.DOMAIN;
+    this.forwardTargetHost = config.FORWARD_TARGET_HOST;
   }
 
-  use(req: ForwardRequest, res: Response, next: NextFunction) {
+  private resolveRoute(req: ForwardRequest) {
     const host = normalizeHost(req.headers.host);
-    if (!host) {
-      res.status(404).json({ message: 'Session not found' });
-      return;
-    }
+    if (!host) return;
 
     const forwardHost = parseForwardHostFromHost(host, this.baseDomain);
-    if (!forwardHost) {
-      res.status(404).json({ message: 'Session not found' });
+    if (!forwardHost) return;
+
+    const route = this.sessions.resolveForwardHost(forwardHost);
+    if (!route) return;
+
+    req.sessionId = route.session.id;
+    req.tunnelTarget = `http://${formatHostForUrl(this.forwardTargetHost)}:${route.forward.port}`;
+    return { ...route, host };
+  }
+
+  upgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
+    socket.once('error', () => socket.destroy());
+    if (!this.resolveRoute(req)) {
+      socket.end(
+        'HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n',
+      );
       return;
     }
+    this.proxy.upgrade(req, socket as Socket, head);
+  }
 
-    const route = this.sessionService.resolveForwardHost(forwardHost);
+  use(req: Request, res: Response, next: NextFunction) {
+    const route = this.resolveRoute(req);
     if (!route) {
       res.status(404).json({ message: 'Session not found' });
       return;
     }
-
-    req.sessionId = route.session.id;
-    req.tunnelTarget = `http://${formatHostForUrl(this.forwardTargetHost)}:${route.forward.port}`;
+    const { host } = route;
     const startedAt = Date.now();
     const requestBytes = parseContentLength(req.headers['content-length']);
     const requestContentType = parseHeader(req.headers['content-type']);
@@ -216,6 +225,8 @@ export class ForwardMiddleware implements NestMiddleware<
     const originalEnd = res.end.bind(res) as typeof res.end;
     let logged = false;
 
+    // Keep the stream paused until the proxy attaches its pipe after async routing.
+    req.pause();
     req.on('data', (chunk) => {
       captureChunk(chunk, undefined, requestChunks);
     });
@@ -251,7 +262,7 @@ export class ForwardMiddleware implements NestMiddleware<
       const responseContentType = parseHeader(res.getHeader('content-type'));
       const isAborted = trigger === 'close' && !res.writableFinished;
 
-      this.sessionService.recordHttpTraffic(route.session.id, {
+      this.sessions.recordHttpTraffic(route.session.id, {
         method: req.method,
         path: req.originalUrl ?? req.url,
         host,
