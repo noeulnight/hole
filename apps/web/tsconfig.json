@@ -1,15 +1,13 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "astro/tsconfigs/strict",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "lib": ["DOM", "DOM.Iterable", "ES2023"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "noEmit": true,
+    "jsxImportSource": "react",
+    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
-    },
-    "types": ["vite/client"]
+    }
   },
-  "include": ["src"]
+  "include": [".astro/types.d.ts", "**/*"],
+  "exclude": ["dist"]
 }

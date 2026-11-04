@@ -146,6 +146,14 @@ function formatHostForUrl(host: string): string {
 
 export class HttpForwarder {
   private readonly logger = console;
+  private readonly upstreamResponses = new WeakMap<
+    IncomingMessage,
+    {
+      httpVersion: string;
+      statusMessage?: string;
+      headers: string[];
+    }
+  >();
   private readonly baseDomain: string;
   private readonly forwardTargetHost: string;
   private readonly proxy = createProxyMiddleware<ForwardRequest, Response>({
@@ -157,6 +165,13 @@ export class HttpForwarder {
     secure: false,
     router: (req) => req.tunnelTarget,
     on: {
+      proxyRes: (upstream, req) => {
+        this.upstreamResponses.set(req, {
+          httpVersion: upstream.httpVersion,
+          statusMessage: upstream.statusMessage,
+          headers: [...upstream.rawHeaders],
+        });
+      },
       error: (error, req, res) => {
         this.logger.warn(
           `HTTP forward failed (${req.method} ${req.url}): ${error.message}`,
@@ -169,7 +184,8 @@ export class HttpForwarder {
           res.destroy(error);
           return;
         }
-        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.statusCode = 502;
+        res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ message: 'Bad gateway' }));
       },
     },
@@ -217,6 +233,10 @@ export class HttpForwarder {
     }
     const { host } = route;
     const startedAt = Date.now();
+    // Capture before proxy header mutation or socket teardown on response completion.
+    const ip = req.socket.remoteAddress;
+    const requestHeaders = [...req.rawHeaders];
+    const requestHttpVersion = req.httpVersion;
     const requestBytes = parseContentLength(req.headers['content-length']);
     const requestContentType = parseHeader(req.headers['content-type']);
     const requestChunks: Buffer[] = [];
@@ -258,6 +278,7 @@ export class HttpForwarder {
       logged = true;
 
       const durationMs = Date.now() - startedAt;
+      const upstream = this.upstreamResponses.get(req);
       const responseBytes = parseContentLength(res.getHeader('content-length'));
       const responseContentType = parseHeader(res.getHeader('content-type'));
       const isAborted = trigger === 'close' && !res.writableFinished;
@@ -266,7 +287,21 @@ export class HttpForwarder {
         method: req.method,
         path: req.originalUrl ?? req.url,
         host,
-        ip: req.ip,
+        ip,
+        requestHeaders,
+        requestHttpVersion,
+        responseHeaders:
+          upstream?.headers ??
+          res.getHeaderNames().flatMap((name) => {
+            const value = res.getHeader(name);
+            return value === undefined
+              ? []
+              : (Array.isArray(value) ? value : [String(value)]).flatMap(
+                  (entry) => [name, entry],
+                );
+          }),
+        responseHttpVersion: upstream?.httpVersion,
+        statusMessage: upstream?.statusMessage ?? res.statusMessage,
         userAgent: parseHeader(req.headers['user-agent']),
         requestContentType,
         responseContentType,

@@ -1,6 +1,11 @@
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
+import {
+  createServer as createHttpsServer,
+  request as httpsRequest,
+} from 'node:https';
 import {
   connect as connectTcp,
   createServer as createTcpServer,
@@ -9,6 +14,7 @@ import type { AddressInfo, Server, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from 'ssh2';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import type { ConnectConfig } from 'ssh2';
 import request from 'supertest';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -87,6 +93,7 @@ describe('SSH tunnel through the Express server', () => {
   let localPort: number;
   let websocketServer: WebSocketServer;
   const websockets = new Set<WebSocket>();
+  let tlsEdge: ReturnType<typeof createHttpsServer> | undefined;
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), 'hole-test-'));
@@ -133,6 +140,8 @@ describe('SSH tunnel through the Express server', () => {
     clients.clear();
     for (const socket of localSockets) socket.destroy();
     localSockets.clear();
+    if (tlsEdge) await close(tlsEdge);
+    tlsEdge = undefined;
     await runtime?.stop();
     if (upstream) await close(upstream);
     upstream = undefined;
@@ -184,6 +193,108 @@ describe('SSH tunnel through the Express server', () => {
         password: 'wrong',
       }),
     ).rejects.toThrow('authentication');
+  });
+
+  it('forwards HTTPS and secure WebSocket through a TLS edge and real SSH tunnel', async () => {
+    const keyPath = join(directory, 'edge.key');
+    const certPath = join(directory, 'edge.crt');
+    execFileSync(
+      'openssl',
+      [
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-days',
+        '1',
+        '-subj',
+        '/CN=example.test',
+        '-addext',
+        'subjectAltName=DNS:example.test,DNS:*.example.test',
+        '-keyout',
+        keyPath,
+        '-out',
+        certPath,
+      ],
+      { stdio: 'ignore' },
+    );
+    const ca = await readFile(certPath);
+    const proxy = createProxyMiddleware({
+      target: `http://127.0.0.1:${(runtime.http.address() as AddressInfo).port}`,
+      changeOrigin: false,
+      ws: false,
+    });
+    tlsEdge = createHttpsServer(
+      { key: await readFile(keyPath), cert: ca },
+      (req, res) => {
+        void proxy(req, res, () => res.end());
+      },
+    );
+    tlsEdge.on('upgrade', (req, socket, head) => {
+      proxy.upgrade(req, socket, head);
+    });
+    tlsEdge.on('connection', (socket) => {
+      localSockets.add(socket);
+      socket.on('close', () => localSockets.delete(socket));
+    });
+    const port = await listen(tlsEdge);
+    const { snapshot } = await openTunnel();
+    const host = `${snapshot.forwards[0].host}.example.test`;
+    const response = await new Promise<{
+      status: number | undefined;
+      body: string;
+    }>((resolve, reject) => {
+      const req = httpsRequest(
+        {
+          hostname: '127.0.0.1',
+          port,
+          servername: host,
+          ca,
+          headers: { Host: host },
+          path: '/secure?probe=1',
+          agent: false,
+        },
+        (res) => {
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (chunk: string) => {
+            body += chunk;
+          });
+          res.on('end', () => resolve({ status: res.statusCode, body }));
+          res.on('error', reject);
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+    expect(response).toEqual({ status: 200, body: 'local:/secure?probe=1' });
+    const ws = new WebSocket(`wss://127.0.0.1:${port}/secure-ws?probe=1`, {
+      ca,
+      servername: host,
+      headers: { Host: host },
+      handshakeTimeout: 1500,
+    });
+    websockets.add(ws);
+    const greeting = once(ws, 'message');
+    await once(ws, 'open');
+    expect(((await greeting)[0] as Buffer).toString()).toBe(
+      'server:/secure-ws?probe=1',
+    );
+    const textEcho = once(ws, 'message');
+    ws.send('secure text');
+    const [text, textIsBinary] = (await textEcho) as [Buffer, boolean];
+    expect(text.toString()).toBe('secure text');
+    expect(textIsBinary).toBe(false);
+    const binaryEcho = once(ws, 'message');
+    const payload = Buffer.from([0, 1, 128, 255]);
+    ws.send(payload);
+    const [binary, isBinary] = (await binaryEcho) as [Buffer, boolean];
+    expect(binary).toEqual(payload);
+    expect(isBinary).toBe(true);
+    const closed = once(ws, 'close');
+    ws.close(1000, 'done');
+    expect((await closed)[0]).toBe(1000);
   });
 
   it('opens a real remote forward, proxies HTTP and TCP, then closes the active session', async () => {

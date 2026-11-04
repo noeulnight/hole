@@ -1,0 +1,11 @@
+---
+import Layout from '../layouts/Layout.astro';
+import ConnectPanel from '../components/ConnectPanel';
+---
+
+<Layout title="Overview">
+  <section class="mx-auto max-w-5xl">
+    <h1 class="mb-6 text-2xl font-semibold tracking-tight">Tunnels</h1>
+    <ConnectPanel client:load />
+  </section>
+</Layout>

@@ -13,7 +13,7 @@
     "dev": "pnpm dev:api & pnpm dev:web",
     "dev:api": "pnpm --filter @hole/api dev",
     "dev:web": "pnpm --filter @hole/web dev",
-    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,css,html}\"",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,css,html,astro}\"",
     "start": "pnpm --filter @hole/api start",
     "start:debug": "pnpm --filter @hole/api start:debug",
     "start:prod": "pnpm --filter @hole/api start:prod",
@@ -34,6 +34,7 @@
     "eslint-plugin-prettier": "^5.2.2",
     "globals": "^16.0.0",
     "prettier": "^3.4.2",
+    "prettier-plugin-astro": "^1.1.2",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
   }

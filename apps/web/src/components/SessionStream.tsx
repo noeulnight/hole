@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { ChevronRight, CircleAlert } from 'lucide-react';
+import { ChevronRight, CircleAlert, RefreshCw } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -11,7 +11,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import SessionTrafficCharts from '@/components/SessionTrafficCharts';
 
 interface SessionSnapshot {
   sessionId: string;
@@ -49,6 +52,11 @@ interface SessionHttpRequestEvent {
   path: string;
   host?: string;
   ip?: string;
+  requestHttpVersion?: string;
+  responseHttpVersion?: string;
+  statusMessage?: string;
+  requestHeaders?: string[];
+  responseHeaders?: string[];
   userAgent?: string;
   requestContentType?: string;
   responseContentType?: string;
@@ -130,17 +138,13 @@ function StatCell({
   label: string;
 }) {
   return (
-    <div className="min-w-0 border-t py-4 sm:border-l sm:px-5 sm:[&:nth-child(-n+3)]:border-t-0 sm:[&:nth-child(3n+1)]:border-l-0">
-      <div className="title-font text-xs uppercase tracking-normal text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-1 break-words text-lg font-semibold tracking-normal">
+    <div className="min-w-0 bg-background px-4 py-4 sm:px-5">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1.5 font-mono text-2xl font-medium tracking-tight tabular-nums">
         {children}
       </div>
       {detail ? (
-        <div className="mt-1 truncate text-xs text-muted-foreground">
-          {detail}
-        </div>
+        <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
       ) : null}
     </div>
   );
@@ -156,27 +160,36 @@ function DetailItem({
   label: string;
 }) {
   return (
-    <div className={cn('min-w-0 border-t py-3', className)}>
-      <div className="title-font text-xs text-muted-foreground">{label}</div>
+    <div className={cn('min-w-0 border-t py-2.5', className)}>
+      <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 break-words font-medium">{children}</div>
     </div>
   );
 }
 
-function BodyBlock({ body }: { body?: SessionBodyPayload }) {
+function RawHttpBlock({
+  startLine,
+  headers,
+  body,
+}: {
+  startLine: string;
+  headers?: string[];
+  body?: SessionBodyPayload;
+}) {
+  const lines = [startLine];
+  const rawHeaders = headers ?? [];
+  for (let index = 0; index < rawHeaders.length; index += 2) {
+    lines.push(`${rawHeaders[index]}: ${rawHeaders[index + 1]}`);
+  }
   return (
-    <pre
-      className={cn(
-        'max-h-80 overflow-auto whitespace-pre-wrap break-words border-t bg-background py-3 font-mono text-sm leading-6',
-        !body?.content && 'text-muted-foreground',
-      )}
-    >
-      {body?.content ?? ''}
+    <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 p-3 font-mono text-xs leading-5">
+      {[...lines, '', body?.content ?? ''].join('\r\n')}
     </pre>
   );
 }
 
 export default function SessionStream({ sessionId }: { sessionId: string }) {
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [requestEvents, setRequestEvents] = useState<SessionHttpRequestEvent[]>(
@@ -195,7 +208,9 @@ export default function SessionStream({ sessionId }: { sessionId: string }) {
     setDeletedEvent(null);
     setSelectedRequest(null);
 
-    const source = new EventSource(`/api/session/${sessionId}/events`);
+    const source = new EventSource(
+      `/api/session/${encodeURIComponent(sessionId)}/events`,
+    );
 
     const onSnapshot = (event: MessageEvent<string>) => {
       const payload = JSON.parse(event.data) as SessionSnapshot;
@@ -228,7 +243,7 @@ export default function SessionStream({ sessionId }: { sessionId: string }) {
     return () => {
       source.close();
     };
-  }, [sessionId]);
+  }, [sessionId, connectionAttempt]);
 
   const averageDuration = getAverageDuration(snapshot);
   const errorRate = getErrorRate(snapshot);
@@ -240,7 +255,39 @@ export default function SessionStream({ sessionId }: { sessionId: string }) {
     (snapshot?.stats.tcp.totalDownlinkBytes ?? 0);
   const lastRequest = requestEvents[0];
   return (
-    <section>
+    <section className="space-y-5">
+      <h1 className="text-2xl font-semibold tracking-tight">Hole</h1>
+      <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted-foreground">
+        <span>
+          Connected{' '}
+          <span className="text-foreground">
+            {formatDate(snapshot?.stats.connectedAt)}
+          </span>
+        </span>
+        <span>
+          Last activity{' '}
+          <span className="text-foreground">
+            {formatTime(snapshot?.stats.lastActivityAt)}
+          </span>
+        </span>
+        <span>
+          TCP{' '}
+          <span className="font-mono text-foreground">
+            {snapshot?.stats.tcp.totalConnections ?? 0} connections ·{' '}
+            {formatBytes(tcpBytes)} · {snapshot?.stats.tcp.totalErrors ?? 0}{' '}
+            errors
+          </span>
+        </span>
+        <span>
+          Last request{' '}
+          <span className="text-foreground">
+            {lastRequest
+              ? `${lastRequest.method} ${formatTime(lastRequest.at)}`
+              : 'Waiting'}
+          </span>
+        </span>
+      </div>
+
       {deletedEvent ? (
         <Alert className="mb-6">
           <AlertDescription>
@@ -252,55 +299,59 @@ export default function SessionStream({ sessionId }: { sessionId: string }) {
       {streamError ? (
         <Alert className="mb-6" variant="destructive">
           <CircleAlert className="size-4" aria-hidden="true" />
-          <AlertDescription>{streamError}</AlertDescription>
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+            <span>{streamError}</span>
+            {!deletedEvent ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setConnectionAttempt((value) => value + 1)}
+              >
+                <RefreshCw /> Reconnect
+              </Button>
+            ) : null}
+          </AlertDescription>
         </Alert>
       ) : null}
 
-      <header className="flex items-center justify-between border-b pb-5">
-        <span className="title-font text-xl font-semibold">Hole</span>
-      </header>
-
-      <section className="grid border-b sm:grid-cols-3">
-        <StatCell label="Connected">
-          {formatDate(snapshot?.stats.connectedAt)}
-        </StatCell>
-        <StatCell label="Last activity">
-          {formatDate(snapshot?.stats.lastActivityAt)}
-        </StatCell>
-        <StatCell label="Last request">
-          {lastRequest
-            ? `${lastRequest.method} ${formatTime(lastRequest.at)}`
-            : 'Waiting'}
-        </StatCell>
+      <section
+        aria-label="Session statistics"
+        className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4"
+      >
         <StatCell
           detail={`${snapshot?.stats.http.totalErrors ?? 0} errors`}
           label="HTTP requests"
         >
           {snapshot?.stats.http.totalRequests ?? 0}
         </StatCell>
-        <StatCell detail={`${requestEvents.length} shown`} label="Avg latency">
-          {averageDuration.toFixed(1)} ms
+        <StatCell label="Avg latency">
+          {averageDuration.toFixed(1)}
+          <span className="ml-1 text-sm text-muted-foreground">ms</span>
         </StatCell>
         <StatCell
-          detail={`${snapshot?.stats.tcp.totalErrors ?? 0} errors`}
-          label="TCP connections"
-        >
-          {snapshot?.stats.tcp.totalConnections ?? 0}
-        </StatCell>
-        <StatCell
-          detail={`${formatBytes(snapshot?.stats.http.totalRequestBytes ?? 0)} up`}
-          label="HTTP bytes"
+          detail={`${formatBytes(snapshot?.stats.http.totalRequestBytes ?? 0)} sent`}
+          label="HTTP transfer"
         >
           {formatBytes(httpBytes)}
         </StatCell>
-        <StatCell label="TCP bytes">{formatBytes(tcpBytes)}</StatCell>
-        <StatCell label="HTTP error rate">{formatPercent(errorRate)}</StatCell>
+        <StatCell label="Error rate">{formatPercent(errorRate)}</StatCell>
       </section>
+      <SessionTrafficCharts
+        key={`${sessionId}-${connectionAttempt}`}
+        totals={snapshot?.stats.http}
+        active={Boolean(snapshot && !deletedEvent && !streamError)}
+      />
 
-      <section>
-        {requestEvents.length ? (
-          <div className="lg:flex lg:items-stretch">
-            <div className="min-w-0 border-b lg:w-1/2 lg:min-w-80 lg:max-w-[75%] lg:resize-x lg:overflow-auto lg:border-r lg:border-b-0">
+      <Card aria-label="Requests" className="overflow-hidden shadow-none">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+          <CardTitle className="text-sm">Requests</CardTitle>
+          <span className="text-xs text-muted-foreground">
+            {requestEvents.length} / {snapshot?.stats.http.totalRequests ?? 0}
+          </span>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="lg:flex lg:h-[640px] lg:items-stretch lg:overflow-hidden">
+            <div className="max-h-96 min-h-64 min-w-0 overflow-auto border-b lg:h-full lg:max-h-none lg:w-[42%] lg:min-w-80 lg:overscroll-contain lg:border-r lg:border-b-0">
               <Table className="table-fixed">
                 <colgroup>
                   <col className="w-[66%]" />
@@ -309,18 +360,31 @@ export default function SessionStream({ sessionId }: { sessionId: string }) {
                 </colgroup>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="title-font h-8 px-1 text-xs uppercase tracking-normal">
+                    <TableHead className="h-9 bg-muted/30 px-4 text-[11px] font-medium">
                       Request
                     </TableHead>
-                    <TableHead className="title-font h-8 px-1 text-xs uppercase tracking-normal">
+                    <TableHead className="h-9 bg-muted/30 px-4 text-[11px] font-medium">
                       Status
                     </TableHead>
-                    <TableHead className="title-font h-8 pr-4 pl-1 text-right text-xs uppercase tracking-normal">
+                    <TableHead className="h-9 bg-muted/30 pr-4 pl-1 text-right text-[11px] font-medium">
                       Time
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {!requestEvents.length ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="h-64 px-6 text-center">
+                        <p className="text-sm font-medium">
+                          {deletedEvent
+                            ? 'Session disconnected'
+                            : streamError
+                              ? 'Session unavailable'
+                              : 'Waiting for requests'}
+                        </p>
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
                   {requestEvents.map((event, index) => {
                     const isSelected = selectedRequest === event;
 
@@ -342,14 +406,14 @@ export default function SessionStream({ sessionId }: { sessionId: string }) {
                         role="button"
                         tabIndex={0}
                       >
-                        <TableCell className="max-w-0 py-2 pr-2 pl-0">
+                        <TableCell className="max-w-0 py-2.5 pr-2 pl-4">
                           <div className="flex min-w-0 items-center gap-2">
                             <ChevronRight
                               className="size-4 shrink-0 text-muted-foreground"
                               aria-hidden="true"
                             />
                             <div className="min-w-0">
-                              <div className="truncate font-mono text-sm">
+                              <div className="truncate font-mono text-xs">
                                 {event.method} {event.path}
                               </div>
                               <div className="truncate text-xs text-muted-foreground">
@@ -368,7 +432,7 @@ export default function SessionStream({ sessionId }: { sessionId: string }) {
                             {event.statusCode}
                           </span>
                         </TableCell>
-                        <TableCell className="py-2 pr-4 pl-1 text-right text-muted-foreground">
+                        <TableCell className="py-2 pr-4 pl-1 text-right font-mono text-xs text-muted-foreground">
                           {event.durationMs.toFixed(1)} ms
                         </TableCell>
                       </TableRow>
@@ -378,9 +442,9 @@ export default function SessionStream({ sessionId }: { sessionId: string }) {
               </Table>
             </div>
 
-            <div className="min-w-0 py-5 lg:flex-1 lg:overflow-hidden lg:pl-6">
+            <div className="min-w-0 px-4 py-4 lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-contain lg:px-5">
               {selectedRequest ? (
-                <div className="space-y-6">
+                <div className="space-y-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -393,7 +457,7 @@ export default function SessionStream({ sessionId }: { sessionId: string }) {
                           </span>
                         ) : null}
                       </div>
-                      <h3 className="mt-3 truncate font-mono text-base font-semibold">
+                      <h3 className="mt-2 break-all font-mono text-sm font-medium">
                         {selectedRequest.path}
                       </h3>
                       <p className="mt-1 text-sm text-muted-foreground">
@@ -410,7 +474,7 @@ export default function SessionStream({ sessionId }: { sessionId: string }) {
                     </span>
                   </div>
 
-                  <div className="grid gap-x-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-x-4 text-xs xl:grid-cols-4">
                     <DetailItem label="Duration">
                       {selectedRequest.durationMs.toFixed(1)} ms
                     </DetailItem>
@@ -428,9 +492,9 @@ export default function SessionStream({ sessionId }: { sessionId: string }) {
                         {selectedRequest.host}
                       </DetailItem>
                     ) : null}
-                    {selectedRequest.ip ? (
-                      <DetailItem label="IP">{selectedRequest.ip}</DetailItem>
-                    ) : null}
+                    <DetailItem label="Peer IP">
+                      {selectedRequest.ip ?? 'Not captured'}
+                    </DetailItem>
                     {selectedRequest.requestContentType ? (
                       <DetailItem label="Request type">
                         {selectedRequest.requestContentType}
@@ -456,42 +520,58 @@ export default function SessionStream({ sessionId }: { sessionId: string }) {
                     ) : null}
                   </div>
 
-                  <div className="grid gap-5 xl:grid-cols-2">
+                  <div className="grid gap-4">
                     <article className="min-w-0">
                       <div className="mb-2 flex items-center justify-between gap-3 text-sm text-muted-foreground">
-                        <span className="title-font">Request body</span>
+                        <span className="font-medium">Request</span>
                         <small>
                           {selectedRequest.requestBody
                             ? `${selectedRequest.requestBody.encoding} / ${formatBytes(selectedRequest.requestBody.byteLength)}`
                             : 'empty'}
                         </small>
                       </div>
-                      <BodyBlock body={selectedRequest.requestBody} />
+                      <RawHttpBlock
+                        startLine={`${selectedRequest.method} ${selectedRequest.path}${selectedRequest.requestHttpVersion ? ` HTTP/${selectedRequest.requestHttpVersion}` : ''}`}
+                        headers={selectedRequest.requestHeaders}
+                        body={selectedRequest.requestBody}
+                      />
                     </article>
                     <article className="min-w-0">
                       <div className="mb-2 flex items-center justify-between gap-3 text-sm text-muted-foreground">
-                        <span className="title-font">Response body</span>
+                        <span className="font-medium">
+                          {selectedRequest.responseHttpVersion
+                            ? 'Response · upstream'
+                            : 'Response'}
+                        </span>
                         <small>
                           {selectedRequest.responseBody
                             ? `${selectedRequest.responseBody.encoding} / ${formatBytes(selectedRequest.responseBody.byteLength)}`
                             : 'empty'}
                         </small>
                       </div>
-                      <BodyBlock body={selectedRequest.responseBody} />
+                      <RawHttpBlock
+                        startLine={`${selectedRequest.responseHttpVersion ? `HTTP/${selectedRequest.responseHttpVersion} ` : ''}${selectedRequest.statusCode}${selectedRequest.statusMessage ? ` ${selectedRequest.statusMessage}` : ''}`}
+                        headers={selectedRequest.responseHeaders}
+                        body={selectedRequest.responseBody}
+                      />
                     </article>
                   </div>
                 </div>
               ) : (
-                <div className="min-h-80" />
+                <div className="flex min-h-64 flex-col items-center justify-center gap-2 text-center lg:min-h-[400px]">
+                  <ChevronRight
+                    className="size-5 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Select a request
+                  </p>
+                </div>
               )}
             </div>
           </div>
-        ) : (
-          <div className="py-6 text-sm text-muted-foreground">
-            Waiting for request events on the active session.
-          </div>
-        )}
-      </section>
+        </CardContent>
+      </Card>
     </section>
   );
 }

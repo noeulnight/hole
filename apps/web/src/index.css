@@ -79,15 +79,4 @@
   body {
     @apply min-h-screen min-w-80 bg-background text-foreground antialiased;
   }
-
-  #root {
-    @apply min-h-screen;
-  }
-
-  .title-font {
-    font-family:
-      'IBM Plex Serif',
-      'Times New Roman',
-      serif;
-  }
 }

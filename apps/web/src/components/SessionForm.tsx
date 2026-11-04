@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react';
+import type { SubmitEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 
@@ -18,7 +18,7 @@ export default function SessionForm({
     setSessionInput(initialValue);
   }, [initialValue]);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     const sessionId = sessionInput.trim();
     if (!sessionId) {
@@ -30,11 +30,11 @@ export default function SessionForm({
 
   return (
     <form
-      className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"
+      className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end"
       onSubmit={handleSubmit}
     >
-      <label className="grid gap-2">
-        <span className="text-sm font-medium text-muted-foreground">
+      <label className="grid gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">
           Session ID
         </span>
         <Input
@@ -44,8 +44,8 @@ export default function SessionForm({
           placeholder="Paste a session id"
         />
       </label>
-      <Button className="h-10" type="submit">
-        Open session
+      <Button className="h-9" type="submit">
+        Inspect
         <ArrowRight aria-hidden="true" />
       </Button>
     </form>

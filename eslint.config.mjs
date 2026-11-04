@@ -6,7 +6,13 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['dist', 'coverage', 'apps/*/dist', 'eslint.config.mjs'],
+    ignores: [
+      'dist',
+      'coverage',
+      'apps/*/dist',
+      'eslint.config.mjs',
+      'apps/web/.astro/**',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,

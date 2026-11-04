@@ -1,0 +1,48 @@
+---
+import '../index.css';
+import { CircleDot } from 'lucide-react';
+interface Props {
+  title: string;
+  showHeader?: boolean;
+}
+const { title, showHeader = true } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Hole — SSH tunnels and live request inspection."
+    />
+    <title>{title} · Hole</title>
+  </head>
+  <body>
+    {showHeader && (
+      <header class="border-b bg-background">
+        <nav
+          class="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-4 sm:px-8"
+          aria-label="Main navigation"
+        >
+          <a
+            href="/"
+            class="flex items-center gap-2.5 text-sm font-semibold tracking-tight"
+          >
+            <CircleDot className="size-5" aria-hidden="true" />
+            Hole
+          </a>
+        </nav>
+      </header>
+    )}
+    <main
+      class:list={[
+        'mx-auto max-w-[1440px] px-4 sm:px-8',
+        showHeader ? 'py-6 sm:py-8' : 'py-4 sm:py-5',
+      ]}
+    >
+      <slot />
+    </main>
+  </body>
+</html>

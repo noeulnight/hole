@@ -40,6 +40,11 @@ export interface SessionHttpRequestPayload {
   path: string;
   host?: string;
   ip?: string;
+  requestHttpVersion?: string;
+  responseHttpVersion?: string;
+  statusMessage?: string;
+  requestHeaders?: string[];
+  responseHeaders?: string[];
   userAgent?: string;
   requestContentType?: string;
   responseContentType?: string;

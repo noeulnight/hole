@@ -26,23 +26,7 @@ import {
   toStatusClass,
 } from './metrics';
 
-interface HttpTrafficMetrics {
-  method: string;
-  path: string;
-  host?: string;
-  ip?: string;
-  userAgent?: string;
-  requestContentType?: string;
-  responseContentType?: string;
-  referer?: string;
-  statusCode: number;
-  requestBytes: number;
-  responseBytes: number;
-  durationMs: number;
-  aborted: boolean;
-  requestBody?: SessionHttpRequestPayload['requestBody'];
-  responseBody?: SessionHttpRequestPayload['responseBody'];
-}
+type HttpTrafficMetrics = Omit<SessionHttpRequestPayload, 'sessionId' | 'at'>;
 
 const SNAPSHOT_EMIT_DEBOUNCE_MS = 250;
 
@@ -266,6 +250,11 @@ export class SessionStore {
       path,
       host: metrics.host,
       ip: metrics.ip,
+      requestHttpVersion: metrics.requestHttpVersion,
+      responseHttpVersion: metrics.responseHttpVersion,
+      statusMessage: metrics.statusMessage,
+      requestHeaders: metrics.requestHeaders,
+      responseHeaders: metrics.responseHeaders,
       userAgent: metrics.userAgent,
       requestContentType: metrics.requestContentType,
       responseContentType: metrics.responseContentType,

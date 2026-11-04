@@ -1,0 +1,8 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import SessionDashboard from '../../components/SessionDashboard';
+---
+
+<Layout title="Session" showHeader={false}>
+  <SessionDashboard client:only="react" />
+</Layout>

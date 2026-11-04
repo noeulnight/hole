@@ -139,7 +139,8 @@ describe('Express HTTP API', () => {
           receivedBody = Buffer.concat([receivedBody, chunk]);
         });
         req.on('end', () => {
-          res.writeHead(201, {
+          res.writeHead(201, 'Created here', {
+            'Set-Cookie': ['first=1', 'second=2'],
             'Content-Type': 'application/octet-stream',
             'X-Upstream': 'yes',
           });
@@ -155,6 +156,8 @@ describe('Express HTTP API', () => {
         .post('/echo?x=1')
         .set('Host', `${host}.example.test`)
         .set('Content-Type', contentType)
+        .set('X-Forwarded-For', '203.0.113.5')
+        .set('X-Trace', ['one', 'two'])
         .send(contentType === 'application/json' ? body.toString() : body)
         .expect(201);
       expect(response.body).toEqual(body);
@@ -163,6 +166,21 @@ describe('Express HTTP API', () => {
       expect(receivedBody).toEqual(body);
       const [event] = (await traffic) as [SessionHttpRequestPayload];
       expect(event.sessionId).toBe(sessionId);
+      expect(event.ip).toMatch(/^(::ffff:)?127\.0\.0\.1$/);
+      expect(event.requestHttpVersion).toBe('1.1');
+      expect(event.responseHttpVersion).toBe('1.1');
+      expect(event.statusMessage).toBe('Created here');
+      expect(event.requestHeaders?.join('\n')).toContain(
+        'X-Trace\none\nX-Trace\ntwo',
+      );
+      expect(event.requestHeaders?.join('\n')).toContain(
+        'X-Forwarded-For\n203.0.113.5',
+      );
+      expect(event.requestHeaders).not.toContain('x-forwarded-host');
+      expect(event.responseHeaders?.join('\n')).toContain(
+        'Set-Cookie\nfirst=1\nSet-Cookie\nsecond=2',
+      );
+      expect(event.responseHeaders?.join('\n')).toContain('X-Upstream\nyes');
       expect(event.responseBody?.content).toBe(body.toString('base64'));
       expect(event.requestBody?.byteLength).toBe(body.length);
     },
@@ -175,10 +193,16 @@ describe('Express HTTP API', () => {
     sessions.addForward(sessionId, port, upstream);
     const host = sessions.buildSnapshotEvent(sessionId, 'initial')!.forwards[0]
       .host;
+    const traffic = once(events, SESSION_HTTP_REQUEST_EVENT);
     await request(app)
       .get('/')
       .set('Host', `${host}.example.test`)
       .expect(502, { message: 'Bad gateway' });
+    const [event] = (await traffic) as [SessionHttpRequestPayload];
+    expect(event.ip).toBeDefined();
+    expect(event.responseHttpVersion).toBeUndefined();
+    expect(event.responseHeaders).toEqual(['content-type', 'application/json']);
+    expect(event.statusMessage).toBe('Bad Gateway');
   });
 
   it.each(['disconnect', 'delete'])(
