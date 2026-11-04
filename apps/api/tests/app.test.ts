@@ -69,6 +69,26 @@ describe('Express HTTP API', () => {
     expect(metrics.text).toContain('hole_sessions_active');
   });
 
+  it('reports only active session and tunnel counts, including zero after disconnect', async () => {
+    const upstream = createServer();
+    const port = await listen(upstream);
+    try {
+      const readStatus = () =>
+        request(app).get('/status').set('Host', 'example.test');
+      await readStatus().expect(200, { sessions: 1, tunnels: 0 });
+      sessions.addForward(sessionId, port, upstream);
+      const response = await readStatus().expect(200, {
+        sessions: 1,
+        tunnels: 1,
+      });
+      expect(response.headers['cache-control']).toBe('no-store');
+      sessions.delete(sessionId);
+      await readStatus().expect(200, { sessions: 0, tunnels: 0 });
+    } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+
   it('rejects missing sessions and unknown tunnel hosts', async () => {
     await request(app)
       .get('/session/missing/events')

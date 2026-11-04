@@ -17,7 +17,7 @@ export default function ConnectPanel() {
     }
   }
   return (
-    <div className="overflow-hidden rounded-lg border">
+    <div>
       <div className="grid lg:grid-cols-[1.3fr_1fr]">
         <section className="min-w-0 border-b p-5 sm:p-6 lg:border-r lg:border-b-0">
           <div className="mb-5 flex items-center gap-2 text-sm font-semibold">

@@ -48,6 +48,13 @@ export class SessionStore {
     return this.session.get(sessionId);
   }
 
+  public getConnectionCounts() {
+    return {
+      sessions: this.session.size,
+      tunnels: this.hostForwardTarget.size,
+    };
+  }
+
   public create(): Session {
     const sessionId = randomUUID();
 

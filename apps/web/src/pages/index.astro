@@ -1,11 +1,19 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import ConnectPanel from '../components/ConnectPanel';
+import ServerStatus from '../components/ServerStatus';
 ---
 
-<Layout title="Overview">
-  <section class="mx-auto max-w-5xl">
-    <h1 class="mb-6 text-2xl font-semibold tracking-tight">Tunnels</h1>
-    <ConnectPanel client:load />
+<Layout title="Overview" showHeader={false}>
+  <section class="mx-auto max-w-4xl">
+    <div class="flex min-h-[48vh] flex-col justify-center py-10 sm:py-16">
+      <h1 class="mb-8 text-center text-4xl font-semibold tracking-tight sm:text-5xl">
+        Hole
+      </h1>
+      <div class="overflow-hidden rounded-lg border">
+        <ConnectPanel client:load />
+        <ServerStatus client:load />
+      </div>
+    </div>
   </section>
 </Layout>

@@ -12,6 +12,10 @@ export function createApiRouter(
   api.get('/health', (_req, res) => {
     res.json({ service: 'hole-api', status: 'ok' });
   });
+  api.get('/status', (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(sessions.getConnectionCounts());
+  });
   api.get('/metrics', async (_req, res) => {
     res.set('Content-Type', metricsRegistry.contentType);
     res.send(await metricsRegistry.metrics());
